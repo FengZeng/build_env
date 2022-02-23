@@ -7,7 +7,7 @@
 3. 第一次编译使用 buildall_armv7l.sh 编译，并根据提示输入 Android NDK 路径，例如 E:\android-ndk-r21e
 
 ## Windows 版本库编译
-1. 下载 Mingw64 编译工具 (<https://mega.nz/file/BVtimZ7b#vGFO_XeYaJdn7uwlWZEZLlN1Z279ermEGmlYh281Oxs>) 并解压
+1. 下载 Mingw64 编译工具 (<https://mega.nz/file/wNFGAToS#FLUZ53Q4zfYQDuhcXCf78zH3gc8BZe3GqD6tWwOfd4I>) 并解压
 2. 在 SourceMedia_libMPV 目录打开 git bash
 3. 第一次编译使用 buildall_win64.sh 脚本进行编译，并根据提示输入 解压的 Mingw64 路径
 
