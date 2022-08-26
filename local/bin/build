@@ -102,7 +102,7 @@ setup_path () {
 }
 
 setup_prefix () {
-	export prefix_dir="$PWD/prefix/$prefix_name"
+	export prefix_dir="$PWD/prefix"
 
 	if [ ! -d "$prefix_dir" ]; then
 		mkdir -p "$prefix_dir"
@@ -150,16 +150,16 @@ build () {
 	BUILDSCRIPT=./$1.sh
 
 	if [ $cleanbuild -eq 1 ]; then
-		if [ -f $BUILDSCRIPT ]; then
-			$BUILDSCRIPT clean
-		else
-			cmake_common clean
-		fi
+		rm -rf _build$suffix
+		exit 0
 	else
+		mkdir -p _build$suffix
+		cd _build$suffix
+        setup_prefix
 		if [ -f $BUILDSCRIPT ]; then
-			$BUILDSCRIPT build
+			$BUILDSCRIPT
 		else
-			cmake_common build
+			cmake_common
 		fi
 	fi
 
@@ -167,18 +167,6 @@ build () {
 }
 
 cmake_common () {
-	if [ "$1" == "build" ]; then
-		true
-	elif [ "$1" == "clean" ]; then
-		rm -rf _build$suffix
-		exit 0
-	else
-		exit 255
-	fi
-
-	mkdir -p _build$suffix
-	cd _build$suffix
-
 	cmake $cmake_toolchain \
 		-DCMAKE_INSTALL_PREFIX=$prefix_dir/usr/local \
 		-G"MSYS Makefiles" .. 
@@ -236,7 +224,6 @@ done
 
 export reconfig
 loadarch $arch
-setup_prefix
 setup_path
 build $target
 exit 0
