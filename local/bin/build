@@ -154,12 +154,15 @@ build () {
 		exit 0
 	else
 		mkdir -p _build$suffix
-		cd _build$suffix
-        setup_prefix
+		pushd _build$suffix
+		setup_prefix
+		popd
 		if [ -f $BUILDSCRIPT ]; then
 			$BUILDSCRIPT
 		else
+			pushd _build$suffix
 			cmake_common
+			popd
 		fi
 	fi
 
