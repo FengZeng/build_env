@@ -1,0 +1,2 @@
+#!/bin/sh
+build --arch win64 armv7l $1 $2 $3

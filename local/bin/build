@@ -1,0 +1,242 @@
+#!/bin/sh
+RESET="\033[0m"
+BOLD="\033[1m"
+RED="\033[31;5;11m"
+GREEN="\033[32;5;11m"
+YELLOW="\033[33;5;11m"
+
+cleanbuild=0
+reconfig=0
+nodeps=1
+clang=1
+arch=armv7l
+target=directory
+
+getdeps () {
+	varname="dep_${1//-/_}[*]"
+	echo ${!varname}
+}
+
+loadarch () {
+	unset CC CXX CPATH LIBRARY_PATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+	apilvl=28
+	# ndk_triple: what the toolchain actually is
+	# cc_triple: what Google pretends the toolchain is
+	target_os=android
+	if [ "$1" == "armv7l" ]; then
+		export suffix=-armv7l
+		export ndk_triple=arm-linux-androideabi
+		export cc_triple=armv7a-linux-androideabi$apilvl
+		prefix_name=armv7l
+	elif [ "$1" == "arm64" ]; then
+		export suffix=-arm64
+		export ndk_triple=aarch64-linux-android
+		cc_triple=$ndk_triple$apilvl
+		prefix_name=arm64
+	elif [ "$1" == "x86" ]; then
+		export suffix=-x86
+		export ndk_triple=i686-linux-android
+		cc_triple=$ndk_triple$apilvl
+		prefix_name=x86
+	elif [ "$1" == "x86_64" ]; then
+		export suffix=-x64
+		export ndk_triple=x86_64-linux-android
+		cc_triple=$ndk_triple$apilvl
+		prefix_name=x86_64
+	elif [ "$1" == "win32" ]; then
+		target_os=mingw32
+		prefix_name=win32
+		export suffix=-win32
+	elif [ "$1" == "win64" ]; then
+		target_os=mingw64
+		prefix_name=win64
+		export suffix=-win64
+	else
+		echo "Invalid architecture"
+		exit 1
+	fi
+	export target_os
+
+	if [ "$target_os" == "android" ]; then
+		if [ $clang -eq 1 ]; then
+			export CC=$cc_triple-clang
+			export CXX=$cc_triple-clang++
+		else
+			export CC=$cc_triple-gcc
+			export CXX=$cc_triple-g++
+		fi
+	else
+		export CC=gcc
+		export CXX=g++
+	fi
+}
+
+setup_path () {
+	build_tool=unknow
+	if [ "$target_os" == "android" ]; then
+		build_tool=ANDROID_NDK
+	else
+		build_tool=MinGW
+	fi
+	toolchain=$$build_tool
+	[ -f ~/.$build_tool ] || touch ~/.$build_tool
+	[ -d "$toolchain" ] || [ -s ~/.$build_tool ] && toolchain=`cygpath -u $(<~/.$build_tool)`
+
+	if [ ! -d "$toolchain/toolchains" ] && [ ! -d "$toolchain/bin" ]; then
+		echo -e $BOLD$RED"$build_tool is undefined!"$RESET
+		read -rp "$(echo -e $BOLD$YELLOW"Set $build_tool PATH: "$RESET)" toolchain
+		echo "$toolchain" > ~/.$build_tool
+	fi
+
+	[ -d "$toolchain" ] && toolchain=`cygpath -u $(<~/.$build_tool)`
+	echo -e $BOLD$GREEN"$build_tool = $toolchain"$RESET
+
+	if [ -d "$toolchain/toolchains" ]; then
+		export cmake_toolchain="-DCMAKE_TOOLCHAIN_FILE=$toolchain\\build\\cmake\\android.toolchain.cmake -DANDROID_PLATFORM=28"
+		toolchain=$(echo "$toolchain/toolchains/llvm/prebuilt/"*)
+	fi
+
+	export PATH="$toolchain/bin:/usr/bin:/usr/local/bin"
+	export PKG_CONFIG_PATH="$prefix_dir/usr/local/lib/pkgconfig"
+	export ninja="/usr/local/bin/ninja.exe"
+}
+
+setup_prefix () {
+	export prefix_dir="$PWD/prefix/$prefix_name"
+
+	if [ ! -d "$prefix_dir" ]; then
+		mkdir -p "$prefix_dir"
+	fi
+
+	if [ "$target_os" == "android" ]; then
+		cat >"$prefix_dir/crossfile.txt" <<CROSSFILE
+[binaries]
+c = '$CC.cmd'
+cpp = '$CXX.cmd'
+ar = '$ndk_triple-ar'
+strip = '$ndk_triple-strip'
+pkgconfig = 'pkg-config'
+[host_machine]
+system = 'linux'
+cpu_family = '${ndk_triple%%-*}'
+cpu = '${CC%%-*}'
+endian = 'little'
+CROSSFILE
+	else
+		cat >"$prefix_dir/crossfile.txt" <<CROSSFILE
+[binaries]
+c = '$CC.exe'
+cpp = '$CXX.exe'
+ar = 'ar.exe'
+strip = 'strip.exe'
+pkgconfig = '/usr/local/bin/pkg-config.exe'
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+CROSSFILE
+	fi
+}
+
+build () {
+	if [[ (! -d $1) && (! -f $1.sh) && (! -f CMakeLists.txt) ]]; then
+		echo >&2 -e $BOLD$RED"Target $1 not found"$RESET
+		usage
+		return 1
+	fi
+
+	echo >&2 -e $BOLD$YELLOW"Building $1..."$RESET
+	BUILDSCRIPT=./$1.sh
+
+	if [ $cleanbuild -eq 1 ]; then
+		if [ -f $BUILDSCRIPT ]; then
+			$BUILDSCRIPT clean
+		else
+			cmake_common clean
+		fi
+	else
+		if [ -f $BUILDSCRIPT ]; then
+			$BUILDSCRIPT build
+		else
+			cmake_common build
+		fi
+	fi
+
+	echo -e $BOLD$GREEN"Build $1 Done"$RESET
+}
+
+cmake_common () {
+	if [ "$1" == "build" ]; then
+		true
+	elif [ "$1" == "clean" ]; then
+		rm -rf _build$suffix
+		exit 0
+	else
+		exit 255
+	fi
+
+	mkdir -p _build$suffix
+	cd _build$suffix
+
+	cmake $cmake_toolchain \
+		-DCMAKE_INSTALL_PREFIX=$prefix_dir/usr/local \
+		-G"MSYS Makefiles" .. 
+
+	make -j$cores
+}
+
+install () {
+	if [ ! -d "out/$prefix_name" ]; then
+		mkdir -p "out/$prefix_name"
+	fi
+
+	if [ "$target_os" == "android" ]; then
+		cp $prefix_dir/usr/local/lib/*.so ./out/$prefix_name
+	else
+		cp $prefix_dir/usr/local/bin/*.dll ./out/$prefix_name
+	fi
+}
+
+usage () {
+	echo "Usage: build [options] [target]"
+	echo "Builds the specified target (default: $target)"
+	echo "--clean        Clean build dirs before compiling"
+	echo "--config         Config project before compiling"
+	echo "--deps         Build dependencies"
+	echo "--arch <arch>  Build for specified architecture (default: $arch; supported: armv7l, arm64, x86_64, win32, win64)"
+	exit 0
+}
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--clean|clean)
+		cleanbuild=1
+		nodeps=0
+		;;
+		--deps)
+		nodeps=0
+		;;
+		--config)
+		reconfig=1
+		;;
+		--arch)
+		shift
+		arch=$1
+		;;
+		-h|--help)
+		usage
+		;;
+		*)
+		target=$1
+		;;
+	esac
+	shift
+done
+
+export reconfig
+loadarch $arch
+setup_prefix
+setup_path
+build $target
+exit 0
