@@ -1,0 +1,2 @@
+#!/bin/sh
+build --arch win64 $1 $2 $3
